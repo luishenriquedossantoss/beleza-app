@@ -1,0 +1,89 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Professional {
+  id           String     @id @default(cuid())
+  name         String
+  slug         String     @unique // usado no link publico: /r/{slug}
+  phone        String
+  passwordHash String
+  plan         Plan       @default(FREE)
+  services     Service[]
+  clients      Client[]
+  bookings     Booking[]
+  workHours    WorkHour[]
+  createdAt    DateTime   @default(now())
+}
+
+model WorkHour {
+  id             String       @id @default(cuid())
+  weekday        Int
+  startMinutes   Int
+  endMinutes     Int
+  professional   Professional @relation(fields: [professionalId], references: [id])
+  professionalId String
+
+  @@index([professionalId])
+}
+
+model Service {
+  id             String       @id @default(cuid())
+  name           String
+  durationMin    Int
+  priceCents     Int
+  depositPercent Int          @default(30)
+  active         Boolean      @default(true)
+  professional   Professional @relation(fields: [professionalId], references: [id])
+  professionalId String
+  bookings       Booking[]
+
+  @@index([professionalId])
+}
+
+model Client {
+  id             String       @id @default(cuid())
+  name           String
+  phone          String
+  professional   Professional @relation(fields: [professionalId], references: [id])
+  professionalId String
+  bookings       Booking[]
+
+  @@unique([professionalId, phone])
+}
+
+model Booking {
+  id             String        @id @default(cuid())
+  startAt        DateTime
+  status         BookingStatus @default(PENDING_PAYMENT)
+  depositCents   Int
+  depositPaid    Boolean       @default(false)
+  pixTxId        String?
+  service        Service       @relation(fields: [serviceId], references: [id])
+  serviceId      String
+  client         Client        @relation(fields: [clientId], references: [id])
+  clientId       String
+  professional   Professional  @relation(fields: [professionalId], references: [id])
+  professionalId String
+  createdAt      DateTime      @default(now())
+
+  @@index([professionalId, startAt])
+}
+
+enum BookingStatus {
+  PENDING_PAYMENT
+  CONFIRMED
+  CANCELED
+  DONE
+}
+
+enum Plan {
+  FREE
+  PRO
+}

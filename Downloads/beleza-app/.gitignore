@@ -1,0 +1,32 @@
+# Dependencias
+node_modules/
+
+# Variaveis de ambiente (nunca commitar segredos)
+.env
+.env.local
+.env.*.local
+
+# Backend
+backend/dist/
+
+# Mobile (Expo)
+mobile/.expo/
+mobile/dist/
+mobile/*.apk
+mobile/*.aab
+mobile/*.ipa
+mobile/*.p12
+mobile/*.jks
+
+# Next.js (public-booking)
+public-booking/.next/
+public-booking/out/
+
+# Prisma
+backend/prisma/dev.db
+backend/prisma/migrations/dev.db
+
+# Sistema
+.DS_Store
+Thumbs.db
+*.log
