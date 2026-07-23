@@ -27,13 +27,16 @@ export default function HoursScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      api.getWorkHours().then((hours) => {
-        const next = WEEKDAYS.map(() => ({ ...defaultDay }));
-        hours.forEach((h) => {
-          next[h.weekday] = { enabled: true, start: minutesToTime(h.startMinutes), end: minutesToTime(h.endMinutes) };
-        });
-        setDays(next);
-      });
+      api
+        .getWorkHours()
+        .then((hours) => {
+          const next = WEEKDAYS.map(() => ({ ...defaultDay }));
+          hours.forEach((h) => {
+            next[h.weekday] = { enabled: true, start: minutesToTime(h.startMinutes), end: minutesToTime(h.endMinutes) };
+          });
+          setDays(next);
+        })
+        .catch(() => {});
     }, [])
   );
 

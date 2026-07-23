@@ -11,8 +11,8 @@ export default function ServicesScreen() {
   const [services, setServices] = useState<any[]>([]);
   const [form, setForm] = useState<ServiceForm>(emptyForm);
 
-  const load = useCallback(() => {
-    api.getServices().then(setServices);
+    const load = useCallback(() => {
+    api.getServices().then(setServices).catch(() => {});
   }, []);
 
   useFocusEffect(

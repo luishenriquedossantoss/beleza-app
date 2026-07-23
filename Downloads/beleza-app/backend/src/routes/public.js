@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { prisma } from "../prisma.js";
-import { mpPayment } from "../mercadopago.js";
+import { createPixPayment, getPayment } from "../mercadopago.js";
 
 const router = Router();
 
@@ -75,7 +75,7 @@ router.get("/:slug/slots", async (req, res) => {
   res.json({ slots });
 });
 
-// cria o agendamento pendente de pagamento e gera a cobranca PIX real no Mercado Pago
+// cria o agendamento pendente de pagamento e gera o PIX real na conta do PROPRIO profissional
 router.post("/:slug/bookings", async (req, res) => {
   const { serviceId, startAt, clientName, clientPhone, clientEmail } = req.body;
   if (!serviceId || !startAt || !clientName || !clientPhone || !clientEmail) {
@@ -84,14 +84,19 @@ router.post("/:slug/bookings", async (req, res) => {
 
   const professional = await prisma.professional.findUnique({ where: { slug: req.params.slug } });
   if (!professional) return res.status(404).json({ error: "Profissional nao encontrado." });
+  if (!professional.mpAccessToken) {
+    return res.status(422).json({
+      error: "Esse profissional ainda nao conectou a conta do Mercado Pago. Peça pra ele conectar no app.",
+    });
+  }
 
   const service = await prisma.service.findUnique({ where: { id: serviceId } });
   if (!service) return res.status(404).json({ error: "Servico nao encontrado." });
 
   const client = await prisma.client.upsert({
     where: { professionalId_phone: { professionalId: professional.id, phone: clientPhone } },
-    update: { name: clientName },
-    create: { name: clientName, phone: clientPhone, professionalId: professional.id },
+    update: { name: clientName, email: clientEmail },
+    create: { name: clientName, phone: clientPhone, email: clientEmail, professionalId: professional.id },
   });
 
   const depositCents = Math.round((service.priceCents * service.depositPercent) / 100);
@@ -107,20 +112,12 @@ router.post("/:slug/bookings", async (req, res) => {
   });
 
   try {
-    const [firstName, ...rest] = clientName.trim().split(" ");
-    const payment = await mpPayment.create({
-      body: {
-        transaction_amount: depositCents / 100,
-        description: `Sinal — ${service.name} com ${professional.name}`,
-        payment_method_id: "pix",
-        external_reference: booking.id,
-        notification_url: process.env.MP_WEBHOOK_URL,
-        payer: {
-          email: clientEmail,
-          first_name: firstName,
-          last_name: rest.join(" ") || firstName,
-        },
-      },
+    const payment = await createPixPayment(professional.mpAccessToken, {
+      amountCents: depositCents,
+      description: `Sinal — ${service.name} com ${professional.name}`,
+      externalId: booking.id,
+      payerEmail: clientEmail,
+      payerName: clientName,
     });
 
     await prisma.booking.update({ where: { id: booking.id }, data: { pixTxId: String(payment.id) } });
@@ -142,22 +139,40 @@ router.post("/:slug/bookings", async (req, res) => {
 
 // webhook chamado pelo Mercado Pago quando o status do pagamento muda
 router.post("/webhook/pix", async (req, res) => {
-  // o MP manda o id tanto no body quanto na query, dependendo da configuracao
   const paymentId = req.body?.data?.id ?? req.query["data.id"];
   if (!paymentId) return res.status(400).json({ error: "Notificacao sem id de pagamento." });
 
   try {
-    const payment = await mpPayment.get({ id: paymentId });
-    const bookingId = payment.external_reference;
-    if (!bookingId) return res.status(200).json({ ok: true });
+    // pode ser o pagamento do sinal ou o do restante — busca nos dois campos
+    const booking =
+      (await prisma.booking.findFirst({ where: { pixTxId: String(paymentId) } })) ??
+      (await prisma.booking.findFirst({ where: { remainingPixTxId: String(paymentId) } }));
+    if (!booking) return res.status(200).json({ ok: true });
+
+    const isRemainingPayment = booking.remainingPixTxId === String(paymentId);
+
+    // consulta o pagamento usando o token do PROPRIO profissional dono do agendamento
+    const professional = await prisma.professional.findUnique({ where: { id: booking.professionalId } });
+    const payment = await getPayment(professional?.mpAccessToken, paymentId);
 
     if (payment.status === "approved") {
-      await prisma.booking.update({
-        where: { id: bookingId },
-        data: { depositPaid: true, status: "CONFIRMED" },
-      });
+      if (isRemainingPayment) {
+        await prisma.booking.update({
+          where: { id: booking.id },
+          data: { remainingPaid: true, status: "DONE" },
+        });
+      } else {
+        await prisma.booking.update({
+          where: { id: booking.id },
+          data: { depositPaid: true, status: "CONFIRMED" },
+        });
+      }
     } else if (["rejected", "cancelled"].includes(payment.status)) {
-      await prisma.booking.update({ where: { id: bookingId }, data: { status: "CANCELED" } });
+      // so cancela o agendamento inteiro se foi o sinal que falhou — se foi o restante,
+      // o atendimento ja aconteceu, entao so deixa sem marcar como pago
+      if (!isRemainingPayment) {
+        await prisma.booking.update({ where: { id: booking.id }, data: { status: "CANCELED" } });
+      }
     }
     res.json({ ok: true });
   } catch (err) {

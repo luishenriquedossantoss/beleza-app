@@ -32,6 +32,13 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, size }) => <Ionicons name="time-outline" size={size} color={color} />,
         }}
       />
+      <Tabs.Screen
+        name="account"
+        options={{
+          title: "Recebimento",
+          tabBarIcon: ({ color, size }) => <Ionicons name="wallet-outline" size={size} color={color} />,
+        }}
+      />
     </Tabs>
   );
 }

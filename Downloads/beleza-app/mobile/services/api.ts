@@ -1,10 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// Provide a minimal process.env type for environments (like React Native) where
-// the Node 'process' type definitions are not available.
-declare const process: { env: { EXPO_PUBLIC_API_URL?: string } };
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.2.135:3333";
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3333";
 
 async function request(path: string, options: RequestInit = {}) {
   const token = await AsyncStorage.getItem("token");
@@ -31,6 +27,8 @@ export type Booking = {
   status: "PENDING_PAYMENT" | "CONFIRMED" | "CANCELED" | "DONE";
   depositCents: number;
   depositPaid: boolean;
+  remainingCents: number | null;
+  remainingPaid: boolean;
   client: { name: string; phone: string };
   service: { name: string; durationMin: number; priceCents: number };
 };
@@ -51,6 +49,11 @@ export const api = {
 
   resendCharge: (id: string) => request(`/bookings/${id}/resend-charge`, { method: "POST" }),
 
+  chargeRemaining: (
+    id: string
+  ): Promise<{ remainingCents: number; pixCopiaECola: string; pixQrCodeBase64: string }> =>
+    request(`/bookings/${id}/charge-remaining`, { method: "POST" }),
+
   getServices: () => request("/services"),
 
   createService: (data: { name: string; durationMin: number; priceCents: number; depositPercent?: number }) =>
@@ -61,4 +64,9 @@ export const api = {
 
   setWorkHours: (hours: { weekday: number; startMinutes: number; endMinutes: number }[]) =>
     request("/work-hours", { method: "PUT", body: JSON.stringify({ hours }) }),
+
+  getPaymentConnectStatus: (): Promise<{ connected: boolean; mpUserId: string | null }> =>
+    request("/payment-settings/mercadopago/status"),
+
+  getPaymentConnectUrl: (): Promise<{ url: string }> => request("/payment-settings/mercadopago/connect"),
 };

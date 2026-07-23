@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { View, Text, Pressable, StyleSheet, Alert } from "react-native";
+import { View, Text, Pressable, StyleSheet, Alert, Image } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { colors, radius } from "../../theme/colors";
 import { api, Booking } from "../../services/api";
@@ -12,6 +12,10 @@ export default function BookingDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const [booking, setBooking] = useState<Booking | null>(null);
+  const [charging, setCharging] = useState(false);
+  const [remainingCharge, setRemainingCharge] = useState<{ pixCopiaECola: string; pixQrCodeBase64: string } | null>(
+    null
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -23,10 +27,23 @@ export default function BookingDetailScreen() {
 
   const initials = booking.client.name.split(" ").slice(0, 2).map((n) => n[0]).join("");
   const depositPercent = Math.round((booking.depositCents / booking.service.priceCents) * 100);
+  const remainingCents = booking.service.priceCents - booking.depositCents;
 
   const resendCharge = async () => {
     await api.resendCharge(booking.id);
     Alert.alert("Cobranca reenviada", `Enviamos o link de pagamento pro WhatsApp de ${booking.client.name}.`);
+  };
+
+  const chargeRemaining = async () => {
+    setCharging(true);
+    try {
+      const result = await api.chargeRemaining(booking.id);
+      setRemainingCharge(result);
+    } catch (err: any) {
+      Alert.alert("Não foi possível cobrar", err.message);
+    } finally {
+      setCharging(false);
+    }
   };
 
   const cancelBooking = () => {
@@ -84,6 +101,41 @@ export default function BookingDetailScreen() {
         </View>
       )}
 
+      {booking.depositPaid && booking.status !== "CANCELED" && (
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Restante do servico</Text>
+
+          {booking.remainingPaid ? (
+            <View style={[styles.statusPill, { backgroundColor: colors.successTint }]}>
+              <Text style={{ color: colors.successTextStrong, fontWeight: "500", fontSize: 13 }}>
+                Restante pago · {formatCents(remainingCents)}
+              </Text>
+            </View>
+          ) : remainingCharge ? (
+            <View style={{ alignItems: "center" }}>
+              <Image
+                source={{ uri: `data:image/png;base64,${remainingCharge.pixQrCodeBase64}` }}
+                style={{ width: 180, height: 180, marginBottom: 10 }}
+              />
+              <Text style={{ fontSize: 12, color: colors.textSecondary, textAlign: "center", marginBottom: 6 }}>
+                Peça pro cliente escanear com o app do banco dele
+              </Text>
+            </View>
+          ) : (
+            <>
+              <Text style={{ fontSize: 13, color: colors.textSecondary, marginBottom: 12 }}>
+                Falta cobrar {formatCents(remainingCents)} pra fechar esse atendimento.
+              </Text>
+              <Pressable style={styles.primaryButton} onPress={chargeRemaining} disabled={charging}>
+                <Text style={styles.primaryButtonText}>
+                  {charging ? "Gerando cobranca..." : `Cobrar restante · ${formatCents(remainingCents)}`}
+                </Text>
+              </Pressable>
+            </>
+          )}
+        </View>
+      )}
+
       {booking.status !== "CANCELED" && (
         <Pressable style={styles.primaryButton} onPress={resendCharge}>
           <Text style={styles.primaryButtonText}>Reenviar cobranca pelo WhatsApp</Text>
@@ -119,6 +171,8 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", justifyContent: "space-between" },
   rowLabel: { fontSize: 13, color: colors.textSecondary },
   rowValue: { fontSize: 13, fontWeight: "500", color: colors.textPrimary },
+  sectionTitle: { fontSize: 14, fontWeight: "500", color: colors.textPrimary },
+  statusPill: { borderRadius: radius.sm, padding: 10, alignItems: "center" },
   warningCard: { backgroundColor: colors.warningTint, borderRadius: radius.lg, padding: 16, marginBottom: 14 },
   warningTitle: { fontSize: 13, fontWeight: "500", color: colors.warningTextStrong },
   warningSubtitle: { fontSize: 12, color: colors.warning, marginTop: 3 },
