@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { prisma } from "../prisma.js";
 import { requireAuth } from "../middleware/requireAuth.js";
-import { createPixPayment } from "../mercadopago.js";
+import { createPixPayment, getPayment } from "../mercadopago.js";
+import { sendWhatsAppMessage } from "../whatsapp.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -48,13 +49,43 @@ router.post("/:id/cancel", async (req, res) => {
 router.post("/:id/resend-charge", async (req, res) => {
   const booking = await prisma.booking.findFirst({
     where: { id: req.params.id, professionalId: req.professionalId },
-    include: { client: true },
+    include: { client: true, service: true },
   });
   if (!booking) return res.status(404).json({ error: "Agendamento nao encontrado." });
+  if (booking.depositPaid) {
+    return res.status(422).json({ error: "O sinal desse agendamento ja foi pago." });
+  }
+  if (!booking.pixTxId) {
+    return res.status(422).json({ error: "Esse agendamento ainda nao tem cobranca PIX gerada." });
+  }
 
-  // TODO: integrar com provedor de WhatsApp (Twilio ou Z-API) para reenviar
-  // o link de pagamento do sinal pro telefone booking.client.phone
-  res.json({ sent: true });
+  const professional = await prisma.professional.findUnique({ where: { id: req.professionalId } });
+
+  try {
+    const payment = await getPayment(professional.mpAccessToken, booking.pixTxId);
+    const pixCopiaECola = payment.point_of_interaction?.transaction_data?.qr_code;
+
+    const valor = (booking.depositCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    const horario = new Date(booking.startAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+
+    await sendWhatsAppMessage(
+      booking.client.phone,
+      `Oi, ${booking.client.name}! Passando pra lembrar do sinal do seu horário de ` +
+        `${booking.service.name} em ${horario} com ${professional.name}.\n` +
+        `Valor do sinal: ${valor}\n\n` +
+        `👇  *PIX COPIA E COLA*  👇\n`
+    );
+
+    await sendWhatsAppMessage(
+      booking.client.phone,
+      `     \`\`\`${pixCopiaECola}\`\`\``
+    );
+
+    res.json({ sent: true });
+  } catch (err) {
+    console.error("Erro ao reenviar cobranca pelo WhatsApp:", err);
+    res.status(502).json({ error: err.message ?? "Nao foi possivel reenviar a cobranca agora." });
+  }
 });
 
 // gera o PIX do valor restante (total do servico menos o sinal ja pago), pra cobrar

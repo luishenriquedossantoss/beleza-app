@@ -5,7 +5,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colors, radius } from "../../theme/colors";
 import { api, Booking } from "../../services/api";
 
-const PUBLIC_BOOKING_URL = process.env.EXPO_PUBLIC_PUBLIC_BOOKING_URL ?? "http://localhost:3000";
+const PUBLIC_BOOKING_URL = (globalThis as any).process?.env?.EXPO_PUBLIC_PUBLIC_BOOKING_URL ?? "http://192.168.2.135:3000";
 
 function startOfDayISO(date: Date) {
   const d = new Date(date);
